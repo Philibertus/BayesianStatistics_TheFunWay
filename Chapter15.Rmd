@@ -1,0 +1,171 @@
+---
+title: "Bayesian Statistics - The Fun Way! #Chapter15"
+author: "Philibertus88"
+date: "2022-10-21"
+output: 
+  html_document:
+    code_folding: hide
+    theme: yeti
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = T, error = T)
+```
+
+# Chapter 15
+
+**A/B Hypothesis testing**
+```{r packages}
+require(tidyverse)
+require(ggsci)
+require(ggrepel)
+```
+
+Make it a weak belief, i.e. allowing a wider range of probable "clicking rates"
+
+*beta(3,7)*
+
+How "soft" this prior is compared to slightly stronger prior beliefs can be visualized using manifolds of the 3:7 ratio.
+
+
+```{r figure1}
+ConversionRate <- seq(0,1,by = 0.01)
+DensitySoft <- dbeta(ConversionRate,3,7)
+DensityMild <- dbeta(ConversionRate,9,21)
+DensityStrong <- dbeta(ConversionRate,30,70)
+DensityVeryStrong <- dbeta(ConversionRate,300,700)
+
+tbl <- tibble(ConversionRate, DensitySoft, DensityMild, DensityStrong, DensityVeryStrong)
+
+tbl %>%
+  pivot_longer(., cols = c(2:5), names_to = "DensityType", values_to = "Density") %>%
+  ggplot(aes(x=ConversionRate, y=Density, color = DensityType)) +
+  geom_point() +
+  theme_bw() +
+  scale_color_d3() +
+  labs(title = "Weak prior belief in Conversion Rate, beta(3,7) in orange (DensitySoft)",
+       x = "Conversion Rate", y = "Density")
+```
+
+We've got new data O/N and have 36 clicks/114 non-clicks in Variant A,
+and 50 clicks / 100 non-clicks in Variant B.
+With this novel data we update our prior's with the freshly arrive likelihood of 0.24 / 0.33 respectively.
+
+
+```{r figure2}
+#beta(a_post, b_post) = beta(a_prior + a_likeli, b_prior + b_likeli)
+var_a <- beta(3 + 36, 7 + 114)
+var_b <- beta(3 + 50, 7 + 100)
+
+var_a_density <- dbeta(ConversionRate, 39, 121)
+var_b_density <- dbeta(ConversionRate, 53, 107)
+
+tbl2 <- tibble(ConversionRate, var_a_density, var_b_density)
+
+tbl2 %>%
+  pivot_longer(., cols = c(2:3), names_to = "type", values_to = "density") %>%
+  ggplot(aes(x = ConversionRate, y = density, color = type)) +
+  geom_point() +
+  geom_line() +
+  scale_color_d3() +
+  theme_bw() +
+  labs(title = "Paramter estimation for Variant A (blue) and Variant B (orange)",
+       y = "Density")
+```
+
+
+From looking at the estimated ConversionRate Density Plot, we suspect that Variant B is slightly more successful in 
+generating clicks.
+But what if we were just unlucky, and the true conversion rate for Variant A is truely higher than the conversion rate of Variant B?
+So, how sure can we be that B is really the better variant?
+
+**Let's run a MonteCarlo (MC) simulation!**
+
+What we do with a MC simulation, is that we randomly sample from the two distributions, where each sample is chosen based on its probability in the distribution. This means that samples from a high-probability region will appear more frequently.
+Looking at the above figure, we can see that it is more likely to sample a value greater than 0.2 in A than a value smaller than 0.2.
+At the same time, a random sample from distribution B is nearly certain to be higher than 0.2.
+What we do with MC simulation, is that we randomly sample from both distributions using "rbeta()" and compare how many times Var A wins/loses over Var b.
+
+We will sample 100K samples from each distribution
+
+```{r}
+n_trials <- 100000 #100K
+prior_alpha <- 3
+prior_beta <- 7
+```
+
+Using rbeta() and the updated a/b to generate 100K samples each
+
+```{r}
+a_samples <- rbeta(n_trials, 36 + prior_alpha, 114 + prior_beta)
+b_samples <- rbeta(n_trials, 50 + prior_alpha, 100 + prior_beta)
+```
+
+Now we compare how often the conversion rate is higher in b vs. a:
+
+```{r}
+prob_b_superior <- sum(b_samples > a_samples)/n_trials
+prob_b_superior #0.95934
+```
+
+This means, Variant B is in 96% of the worlds better (i.e has a higher conversion rate) than Variant A.
+Now in a Business Context, it's usually necessary to express this certainty in numbers.
+Simply saying Variant B is better than A is not good enough.
+But to arrive at this numeric is quite easy: we can simply divide the b_samples by the a_samples.
+
+```{r figure3}
+b_over_a_samples <- b_samples/a_samples
+b_over_a_tbl <- tibble("Ratio" = b_over_a_samples)
+  
+b_over_a_tbl %>%
+  ggplot(aes(x = Ratio)) +
+  geom_histogram(fill = "grey60", color = "black") +
+  theme_bw() +
+  scale_x_continuous(breaks = seq(0,4,0.2)) +
+  geom_vline(xintercept = 1.35, linetype = 2, color = "red") +
+  labs(title = "Histogram of Superiority Counts of Variant B over Variant A",
+       x = "VarB/VarA")
+```
+
+We can here estimate visually how many times VarB is better than VarA.
+Guesstimate: 1.35
+
+Alternatively, we can use R's empirical cumulative distribution function eCDF.
+
+```{r figure4}
+res_ecdf <- ecdf(b_samples/a_samples)
+sequence1 <- seq(0,4,0.001)
+values_ecdf <- purrr::map(sequence1, res_ecdf)
+values_ecdf <- unlist(values_ecdf)
+
+tbl2 <- tibble("BoverA" = sequence1, "Probability" = values_ecdf)
+
+#tbl2 %>%
+#  dplyr::filter(BoverA < 1) %>%
+#  pull(Probability) %>%
+#  sum() #2.72905
+
+#tbl2 %>%
+#  dplyr::filter(Probability == 1) %>%
+#  pull(BoverA) %>%
+# min() #3.382
+
+tbl2 %>%
+  ggplot(aes(x = BoverA, y = Probability, label = Probability)) +
+  geom_line() +
+  theme_bw() +
+  geom_ribbon(data = subset(tbl2, BoverA < 1 & Probability < 3.4),
+              aes(ymax = Probability), xmin = 0, xmax = 0.9999, ymin = 0,
+              fill = "dodgerblue", alpha = 0.5) +
+  geom_ribbon(data = subset(tbl2, BoverA >1 & Probability < 3.4),
+              aes(xmin = 1.001, xmax = 3.382, ymax = Probability, ymin = 0.027),
+              fill = "firebrick", alpha = 0.5) +
+  geom_text(x = 0.5 , y = 0.03, label = "2.7%", color = "dodgerblue") +
+  geom_text(x = 2, y = 0.5, label = "97.3%", color = "firebrick") +
+  labs(title = "Empirical Cumulative Distribution of Variant B over A",
+       subtitle = "Variant B is with a chance of 97.27% superior to Variant A")
+
+
+```
+
+

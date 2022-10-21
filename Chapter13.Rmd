@@ -1,0 +1,143 @@
+---
+title: "Bayesian Statistics - The Fun Way! #Chapter 13"
+author: "Philibertus88"
+date: "2022-10-21"
+output: 
+  html_document:
+    code_folding: show
+    theme: yeti
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = TRUE, message = FALSE, error = TRUE)
+```
+
+# Chapter 13:
+
+```{r packages}
+require(tidyverse)
+```
+
+```{r figure1}
+x <- seq(0.005,0.01,by = 0.00001)
+y <- dbeta(x,300,39700)
+
+tbl <- tibble("x" = x, "y" = y)
+tbl %>%
+  ggplot(aes(x = x, y = y, color = y)) +
+  geom_point(size = 0.1) +
+  theme_bw() +
+  geom_vline(xintercept = 300/40000, linetype = "dashed", color = "grey60") +
+  scale_color_viridis_c() +
+  labs(x = "Probability of subscription", y = "Density", title = "PDF beta(300,39700)")
+```
+
+
+How much more likely is it that the true conversion rate is 0.001 higher/lower than the mean of 0.0075?
+We can take the integral of the dbeta distribution from 0 up to 0.0065 / or from 0.0085 up to 1.
+Eventhough we have limited data using cumulative density function (CDF)
+
+```{r}
+lower <- pbeta(0.0065, 300, 39700)
+#[1] 0.007978686
+
+higher <- pbeta(1,300,39700) - pbeta(0.0085, 300, 39700)
+#[1] 0.01248151
+
+higher/lower
+#[1] 1.564357
+```
+
+The true conversion rate is about 1.5x more likely to be actually higher than the estimated mean 0f 0.0075
+```{r figure2}
+tbl %>%
+  ggplot(aes(x = x, y = y)) +
+  geom_point(size = 0.1) + 
+  geom_ribbon(data = subset(tbl, x > 0 & x <0.0065), 
+              aes(ymax = y), xmax = 0.0065, ymin = 0, xmin = 0,
+              fill = "firebrick", 
+              alpha = 0.5) +
+  geom_ribbon(data = subset(tbl, x > 0.0085 & x < 1),
+              aes(ymax = y), ymin = 0, xmax = 1, xmin = 0.0085,
+              fill = "steelblue",
+              alpha = 0.5) +
+  theme_bw() +
+  geom_vline(xintercept = 300/40000, linetype = "dashed", color = "grey60") +
+  scale_color_viridis_c() +
+  labs(x = "Probability of Subscription", y = "Density", title = "PDF beta(300,39700)")
+```
+
+```{r figure 3}
+
+#calculate the median of the CDF:
+tbl$CDF <- pbeta(tbl$x, 300, 39700)
+median(tbl$CDF)
+#or derived visually:
+
+CDFplot <- tbl %>%
+  ggplot(aes(x = x, y = CDF, color = CDF)) +
+  geom_point(size = 0.1) +
+  theme_bw() +
+  labs(y = "Cumulative probability", x = "Probability of Subscription",
+       title = "CDF for E-Mail Conversion", subtitle = "Horizontal lines indicate 95% Confidence Interval\n 95% CI: approx. 0.0067 - 0.0084 (dashed red lines)") +
+  #geom_hline(yintercept = median(tbl$CDF), linetype = "dashed", color = "grey60") +
+  geom_hline(yintercept = 0.025, linetype = 1, color = "grey60") +
+  geom_hline(yintercept = 0.975, linetype = 1, color = "grey60") +
+  geom_vline(xintercept = 0.0067, linetype = 2, color = "red") +
+  geom_vline(xintercept = 0.0084, linetype = 2, color = "red")
+
+#The quantile function does the reverse of the CDF, i.e. it starts with a probability
+#(e.g. you want to know the 95% confidence interval for probability of subscription)
+#and provides you with precise numbers rather than starting with plotting and then deducing the 95% confidence
+#interval "visually":
+true_0.025percentCI <- qbeta(0.025, 300, 39700)
+true_0.975percentCI <- qbeta(0.975, 300, 39700)
+CDFplot +
+  geom_point(aes(y = 0.025, x = true_0.025percentCI), color = "gold", size = 6, shape = 3) +
+  geom_point(aes(y = 0.975, x = true_0.975percentCI), color = "gold", size = 6, shape = 3) +
+  labs(caption = "While still very close, the quantile function qbeta(0.025, 300, 39700) and\n
+       qbeta(0.975, 300, 39700) provide us the actual values (yellow cross)")
+```
+
+
+
+Exercises
+**1 Plot Quantile Function:**
+```{r figure5}
+xs <- seq(0.001,0.99,by = 0.001)
+quantile <- qbeta(xs, 300, 39700)
+tbl2 <- tibble("Quantile" = xs, "Probability of Subscription" = quantile)
+tbl2 %>%
+  ggplot(aes(x = Quantile, y = `Probability of Subscription`)) +
+  geom_point(size = 0.1) +
+  theme_bw()
+```
+
+**2 What's the 99.9% Confidence Interval of snow fall?**
+```{r}
+snowfall <- c(7.8, 9.4, 10, 7.9, 9.4, 7.0, 7.0, 7.1, 8.9, 7.4)
+length(snowfall) #10
+
+mean_snow <- mean(snowfall)
+sd_snow <- sd(snowfall)
+
+qnorm(0.0005, mean = mean_snow, sd = sd_snow) #4.456
+qnorm(0.9995, mean = mean_snow, sd = sd_snow) #11.924
+```
+
+The 99.9% Confidence Interval lies between 4.456 and 11.924 inches of snow.
+
+
+**3 How many candy bars will likely be sold with the next 40 house visits?**
+```{r}
+#30 houses
+#10 candy bars
+#alpha = 10, beta = 20
+
+lowerBound <- qbeta(0.025, 10,20)
+upperBound <- qbeta(0.975, 10,20)
+
+lowerBound * 40 #7.175346
+upperBound * 40 #20.33293
+```
+We're pretty certain that she will sell *between 7 and 20* candy bars.
